@@ -277,7 +277,7 @@
   let allFiles = [];        // {id,name,mimeType}
   let logoBitmap = null;
   let logoAspect = 1;
-  let faceApiReady = false;
+  let faceApiPromise = null;  // se carga una sola vez, aunque haya varias fotos en paralelo
   let running = false;
   let abortCtrl = null;     // cancela descargas/subidas en curso al tocar "Detener"
   let results = { ok: [], failed: [] }; // failed: {name, error, file}
@@ -467,17 +467,20 @@
   });
 
   // ---------- face detection (optional, lazy-loaded) ----------
-  async function ensureFaceApi(){
-    if (faceApiReady) return true;
-    try {
-      await loadScript('https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js');
-      await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights');
-      faceApiReady = true;
-    } catch (e){
-      logMsg('No se pudo cargar el detector de rostros, el logo quedará siempre fijo abajo a la derecha.', 'err');
-      faceApiReady = false;
+  function ensureFaceApi(){
+    if (!faceApiPromise){
+      faceApiPromise = (async () => {
+        try {
+          await loadScript('https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js');
+          await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights');
+          return true;
+        } catch (e){
+          logMsg('No se pudo cargar el detector de rostros, el logo quedará siempre fijo abajo a la derecha.', 'err');
+          return false;
+        }
+      })();
     }
-    return faceApiReady;
+    return faceApiPromise;
   }
 
   function loadScript(src){
