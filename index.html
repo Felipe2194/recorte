@@ -491,17 +491,21 @@
     });
   }
 
-  // Detecta caras sobre una copia chica (máx. 640 px): sobre la foto completa
-  // congela la pestaña varios segundos. Devuelve cajas en coordenadas de `canvas`.
-  async function detectFaces(canvas){
-    const k = Math.min(1, 640 / Math.max(canvas.width, canvas.height));
-    const small = document.createElement('canvas');
-    small.width = Math.round(canvas.width * k);
-    small.height = Math.round(canvas.height * k);
-    small.getContext('2d').drawImage(canvas, 0, 0, small.width, small.height);
-    const detections = await faceapi.detectAllFaces(small, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }));
-    small.width = 0; small.height = 0;
-    return detections.map(d => ({ x: d.box.x / k, y: d.box.y / k, width: d.box.width / k, height: d.box.height / k }));
+  // Detecta caras solo en la zona donde puede ir el logo (x0,y0 → esquina inferior
+  // derecha). El detector reduce todo a ~600 px: sobre la foto entera, la cara de un
+  // corredor en una foto de 4000 px queda en ~18 px y no se detecta. Recortando la
+  // zona, la cara queda grande y además es más rápido. Devuelve cajas en coordenadas de `canvas`.
+  async function detectFaces(canvas, x0, y0){
+    x0 = Math.max(0, Math.floor(x0)); y0 = Math.max(0, Math.floor(y0));
+    const cw = canvas.width - x0, ch = canvas.height - y0;
+    const k = Math.min(1, 608 / Math.max(cw, ch));
+    const crop = document.createElement('canvas');
+    crop.width = Math.round(cw * k);
+    crop.height = Math.round(ch * k);
+    crop.getContext('2d').drawImage(canvas, x0, y0, cw, ch, 0, 0, crop.width, crop.height);
+    const detections = await faceapi.detectAllFaces(crop, new faceapi.TinyFaceDetectorOptions({ inputSize: 608, scoreThreshold: 0.5 }));
+    crop.width = 0; crop.height = 0;
+    return detections.map(d => ({ x: x0 + d.box.x / k, y: y0 + d.box.y / k, width: d.box.width / k, height: d.box.height / k }));
   }
 
   function rectsOverlap(a, b){
@@ -563,11 +567,11 @@
 
     if ($('avoidFaces').checked && await ensureFaceApi()){
       try {
-        const faces = await detectFaces(canvas);
+        const yUp = Math.max(margin, canvas.height - logoH - margin * 4);
+        const faces = await detectFaces(canvas, x - logoW, yUp - logoH * 2);
         let rect = { x, y, w: logoW, h: logoH };
         const blocked = faces.some(f => rectsOverlap(f, rect));
         if (blocked){
-          const yUp = Math.max(margin, canvas.height - logoH - margin * 4);
           rect = { x, y: yUp, w: logoW, h: logoH };
           if (!faces.some(f => rectsOverlap(f, rect))){
             y = yUp;
