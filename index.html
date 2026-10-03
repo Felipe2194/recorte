@@ -214,10 +214,6 @@
         <p class="hint">0 = resolución original. Nunca agranda.</p>
       </div>
     </div>
-    <div class="field checkrow">
-      <input type="checkbox" id="avoidFaces" checked>
-      <label for="avoidFaces">Intentar no tapar caras (desplaza el logo si detecta un rostro debajo)</label>
-    </div>
     <div class="field">
       <label for="destName">Nombre de la carpeta de resultados (se crea dentro de la carpeta de origen)</label>
       <input type="text" id="destName" value="UTN_CORRE_PROCESADAS_2026">
@@ -277,7 +273,6 @@
   let allFiles = [];        // {id,name,mimeType}
   let logoBitmap = null;
   let logoAspect = 1;
-  let faceApiPromise = null;  // se carga una sola vez, aunque haya varias fotos en paralelo
   let running = false;
   let abortCtrl = null;     // cancela descargas/subidas en curso al tocar "Detener"
   let results = { ok: [], failed: [] }; // failed: {name, error, file}
@@ -466,52 +461,6 @@
     $('logoPreview').style.display = 'flex';
   });
 
-  // ---------- face detection (optional, lazy-loaded) ----------
-  function ensureFaceApi(){
-    if (!faceApiPromise){
-      faceApiPromise = (async () => {
-        try {
-          await loadScript('https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js');
-          await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights');
-          return true;
-        } catch (e){
-          logMsg('No se pudo cargar el detector de rostros, el logo quedará siempre fijo abajo a la derecha.', 'err');
-          return false;
-        }
-      })();
-    }
-    return faceApiPromise;
-  }
-
-  function loadScript(src){
-    return new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = src; s.onload = resolve; s.onerror = reject;
-      document.head.appendChild(s);
-    });
-  }
-
-  // Detecta caras solo en la zona donde puede ir el logo (x0,y0 → esquina inferior
-  // derecha). El detector reduce todo a ~600 px: sobre la foto entera, la cara de un
-  // corredor en una foto de 4000 px queda en ~18 px y no se detecta. Recortando la
-  // zona, la cara queda grande y además es más rápido. Devuelve cajas en coordenadas de `canvas`.
-  async function detectFaces(canvas, x0, y0){
-    x0 = Math.max(0, Math.floor(x0)); y0 = Math.max(0, Math.floor(y0));
-    const cw = canvas.width - x0, ch = canvas.height - y0;
-    const k = Math.min(1, 608 / Math.max(cw, ch));
-    const crop = document.createElement('canvas');
-    crop.width = Math.round(cw * k);
-    crop.height = Math.round(ch * k);
-    crop.getContext('2d').drawImage(canvas, x0, y0, cw, ch, 0, 0, crop.width, crop.height);
-    const detections = await faceapi.detectAllFaces(crop, new faceapi.TinyFaceDetectorOptions({ inputSize: 608, scoreThreshold: 0.5 }));
-    crop.width = 0; crop.height = 0;
-    return detections.map(d => ({ x: x0 + d.box.x / k, y: y0 + d.box.y / k, width: d.box.width / k, height: d.box.height / k }));
-  }
-
-  function rectsOverlap(a, b){
-    return a.x < b.x + b.w && a.x + a.width > b.x && a.y < b.y + b.h && a.y + a.height > b.y;
-  }
-
   // ---------- processing ----------
   // Asigna el nombre de salida de cada foto antes de procesar, en un orden fijo
   // (nombre, id). Así "A.jpg" y "A.png" siempre terminan como A.jpg y A_1.jpg,
@@ -562,25 +511,8 @@
     const logoW = canvas.width * sizePct;
     const logoH = logoW * logoAspect;
     const margin = canvas.width * marginPct;
-    let x = canvas.width - logoW - margin;
-    let y = canvas.height - logoH - margin;
-
-    if ($('avoidFaces').checked && await ensureFaceApi()){
-      try {
-        const yUp = Math.max(margin, canvas.height - logoH - margin * 4);
-        const faces = await detectFaces(canvas, x - logoW, yUp - logoH * 2);
-        let rect = { x, y, w: logoW, h: logoH };
-        const blocked = faces.some(f => rectsOverlap(f, rect));
-        if (blocked){
-          rect = { x, y: yUp, w: logoW, h: logoH };
-          if (!faces.some(f => rectsOverlap(f, rect))){
-            y = yUp;
-          }
-          // if still blocked, keep the original bottom-right position —
-          // a fixed, predictable placement beats an erratic one.
-        }
-      } catch (e) { /* detection failed on this photo — keep default position */ }
-    }
+    const x = canvas.width - logoW - margin;
+    const y = canvas.height - logoH - margin;
 
     ctx.globalAlpha = opacityPct;
     ctx.drawImage(logoBitmap, x, y, logoW, logoH);

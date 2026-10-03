@@ -59,4 +59,3 @@ Las fotos originales nunca se tocan.
 - **Concurrencia**: 3 fotos a la vez (`CONCURRENCY` en `index.html`). Si la máquina se queda sin memoria con fotos muy grandes, bajala a 1.
 - **Token**: dura ~1 h. Si un lote largo falla con `token_expired`, volvé a "Conectar" y usá "Reintentar fallidas".
 - **Formatos**: WebP se genera bien en Chrome/Edge/Firefox; Safari puede no soportarlo para exportar (la foto queda como fallida con el motivo).
-- **Evitar caras**: heurística opcional con face-api.js (se carga desde jsDelivr solo si está tildada).
