@@ -279,6 +279,7 @@
   let logoAspect = 1;
   let faceApiReady = false;
   let running = false;
+  let abortCtrl = null;     // cancela descargas/subidas en curso al tocar "Detener"
   let results = { ok: [], failed: [] }; // failed: {name, error, file}
 
   // ---------- persisted client id ----------
@@ -354,6 +355,7 @@
     const res = await fetch(url, options);
     if ((res.status === 403 || res.status === 429) && attempt < 4){
       await sleep(500 * Math.pow(2, attempt));
+      if (options.signal && options.signal.aborted) throw new DOMException('Detenido', 'AbortError');
       return driveFetch(url, options, attempt + 1);
     }
     if (res.status === 401){
@@ -414,20 +416,21 @@
     return names;
   }
 
-  async function downloadFile(fileId){
-    const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`);
+  async function downloadFile(fileId, signal){
+    const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`, { signal });
     if (!res.ok) throw new Error('No se pudo descargar (HTTP ' + res.status + ')');
     return await res.blob();
   }
 
-  async function uploadFile(blob, name, parentId){
+  async function uploadFile(blob, name, parentId, signal){
     const metadata = { name, parents: [parentId] };
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
     form.append('file', blob);
     const res = await driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true', {
       method: 'POST',
-      body: form
+      body: form,
+      signal
     });
     if (!res.ok) throw new Error('No se pudo subir (HTTP ' + res.status + ')');
     return await res.json();
@@ -485,6 +488,19 @@
     });
   }
 
+  // Detecta caras sobre una copia chica (máx. 640 px): sobre la foto completa
+  // congela la pestaña varios segundos. Devuelve cajas en coordenadas de `canvas`.
+  async function detectFaces(canvas){
+    const k = Math.min(1, 640 / Math.max(canvas.width, canvas.height));
+    const small = document.createElement('canvas');
+    small.width = Math.round(canvas.width * k);
+    small.height = Math.round(canvas.height * k);
+    small.getContext('2d').drawImage(canvas, 0, 0, small.width, small.height);
+    const detections = await faceapi.detectAllFaces(small, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }));
+    small.width = 0; small.height = 0;
+    return detections.map(d => ({ x: d.box.x / k, y: d.box.y / k, width: d.box.width / k, height: d.box.height / k }));
+  }
+
   function rectsOverlap(a, b){
     return a.x < b.x + b.w && a.x + a.width > b.x && a.y < b.y + b.h && a.y + a.height > b.y;
   }
@@ -499,9 +515,10 @@
     return name;
   }
 
-  async function processOne(file, usedNames){
+  async function processOne(file, usedNames, signal){
     const fmt = currentFormat();
-    const blob = await downloadFile(file.id);
+    const blob = await downloadFile(file.id, signal);
+    signal.throwIfAborted();
     const bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' });
 
     // Redimensionado opcional: el lado más largo se lleva a maxSide (nunca agranda).
@@ -534,13 +551,13 @@
 
     if ($('avoidFaces').checked && await ensureFaceApi()){
       try {
-        const detections = await faceapi.detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }));
+        const faces = await detectFaces(canvas);
         let rect = { x, y, w: logoW, h: logoH };
-        const blocked = detections.some(d => rectsOverlap(d.box, rect));
+        const blocked = faces.some(f => rectsOverlap(f, rect));
         if (blocked){
           const yUp = Math.max(margin, canvas.height - logoH - margin * 4);
           rect = { x, y: yUp, w: logoW, h: logoH };
-          if (!detections.some(d => rectsOverlap(d.box, rect))){
+          if (!faces.some(f => rectsOverlap(f, rect))){
             y = yUp;
           }
           // if still blocked, keep the original bottom-right position —
@@ -556,16 +573,22 @@
     const quality = Math.min(1, Math.max(0.5, (parseFloat($('quality').value) || 93) / 100));
     const outBlob = await new Promise(res => canvas.toBlob(res, fmt.mime, quality));
     canvas.width = 0; canvas.height = 0;
+    signal.throwIfAborted();
     if (!outBlob || outBlob.type !== fmt.mime){
       throw new Error('El navegador no pudo generar ' + fmt.ext + ' (probá con Chrome o con JPG).');
     }
 
     const outName = outputName(file.name, usedNames, fmt.ext);
-    await uploadFile(outBlob, outName, destFolderId);
+    try {
+      await uploadFile(outBlob, outName, destFolderId, signal);
+    } catch (e){
+      usedNames.delete(outName);
+      throw e;
+    }
     return outName;
   }
 
-  async function runBatch(fileList, existingNames){
+  async function runBatch(fileList, existingNames, signal){
     // Arranca con los nombres que ya hay en Drive para no subir duplicados.
     const usedNames = new Set(existingNames || []);
     let idx = 0;
@@ -586,10 +609,12 @@
       while (idx < fileList.length && running){
         const file = fileList[idx++];
         try {
-          const outName = await processOne(file, usedNames);
+          const outName = await processOne(file, usedNames, signal);
           results.ok.push(file.name);
           logMsg(file.name + ' → ' + outName, 'ok');
         } catch (e){
+          // Cortada por "Detener": no es una falla, se retoma al reanudar.
+          if (signal.aborted) break;
           results.failed.push({ name: file.name, error: e.message, file });
           logMsg(file.name + ' → ERROR: ' + e.message, 'err');
         }
@@ -600,56 +625,67 @@
     await Promise.all(Array.from({ length: CONCURRENCY }, worker));
   }
 
-  $('processBtn').addEventListener('click', async () => {
-    if (!logoBitmap){ alert('Subí primero el logo PNG.'); return; }
-    if (!sourceFolderId){ alert('Buscá primero la carpeta de fotos.'); return; }
-
+  // Corre un lote: maneja botones, cancelación y estado final.
+  async function startRun(job){
     running = true;
-    results = { ok: [], failed: [] };
-    $('log').innerHTML = '';
+    abortCtrl = new AbortController();
+    const signal = abortCtrl.signal;
     $('processBtn').disabled = true;
+    $('retryBtn').style.display = 'none';
+    $('stopBtn').disabled = false;
+    $('stopBtn').textContent = 'Detener';
     $('stopBtn').style.display = 'inline-block';
     unlock('step6');
-
     try {
+      await job(signal);
+    } catch (e){
+      if (!signal.aborted) logMsg('Error general: ' + e.message, 'err');
+    }
+    running = false;
+    abortCtrl = null;
+    if (signal.aborted) logMsg('Detenido. Tocá "Reanudar" para seguir con las que faltan.');
+    $('processBtn').textContent = signal.aborted ? 'Reanudar' : 'Procesar fotos';
+    $('processBtn').disabled = false;
+    $('stopBtn').style.display = 'none';
+    $('retryBtn').style.display = results.failed.length ? 'inline-block' : 'none';
+  }
+
+  $('processBtn').addEventListener('click', () => {
+    if (!logoBitmap){ alert('Subí primero el logo PNG.'); return; }
+    if (!sourceFolderId){ alert('Buscá primero la carpeta de fotos.'); return; }
+    results = { ok: [], failed: [] };
+    $('log').innerHTML = '';
+
+    startRun(async (signal) => {
       destFolderId = await getOrCreateFolder($('destName').value.trim() || 'UTN_CORRE_PROCESADAS', sourceFolderId);
       $('driveLink').href = 'https://drive.google.com/drive/folders/' + destFolderId;
       $('driveLink').style.display = 'inline';
 
+      // Lo que ya está en Drive se saltea: así funciona reanudar después de "Detener".
       const ext = currentFormat().ext;
       const existingNames = await listAllNames(destFolderId);
       const pending = allFiles.filter(f => !existingNames.has(baseName(f.name) + ext));
       if (pending.length < allFiles.length){
         logMsg((allFiles.length - pending.length) + ' fotos ya tenían resultado ' + ext + ' en Drive — se saltean.');
       }
-      await runBatch(pending, existingNames);
-    } catch (e){
-      logMsg('Error general: ' + e.message, 'err');
-    }
-
-    running = false;
-    $('processBtn').disabled = false;
-    $('stopBtn').style.display = 'none';
-    $('retryBtn').style.display = results.failed.length ? 'inline-block' : 'none';
+      await runBatch(pending, existingNames, signal);
+    });
   });
 
-  $('stopBtn').addEventListener('click', () => { running = false; });
+  $('stopBtn').addEventListener('click', () => {
+    if (!abortCtrl) return;
+    running = false;
+    abortCtrl.abort();
+    $('stopBtn').disabled = true;
+    $('stopBtn').textContent = 'Deteniendo…';
+  });
 
-  $('retryBtn').addEventListener('click', async () => {
+  $('retryBtn').addEventListener('click', () => {
     const toRetry = results.failed.map(f => f.file);
     results.failed = [];
-    running = true;
-    $('processBtn').disabled = true;
-    $('stopBtn').style.display = 'inline-block';
-    try {
-      await runBatch(toRetry, await listAllNames(destFolderId));
-    } catch (e){
-      logMsg('Error general: ' + e.message, 'err');
-    }
-    running = false;
-    $('processBtn').disabled = false;
-    $('stopBtn').style.display = 'none';
-    $('retryBtn').style.display = results.failed.length ? 'inline-block' : 'none';
+    startRun(async (signal) => {
+      await runBatch(toRetry, await listAllNames(destFolderId), signal);
+    });
   });
 
   // ---------- ZIP (always rebuilt from the Drive results folder) ----------
