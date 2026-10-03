@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UTN CORRE — Procesador de fotos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root{
+    --paper:#faf7f2; --paper-2:#f1ece3; --ink:#1e1b18; --ink-soft:#5c554c;
+    --line:#ddd4c6; --accent:#1f5c4a; --accent-ink:#f3fbf6;
+    --ok:#1f5c4a; --ok-bg:#e4efe9; --warn:#9c6a12; --warn-bg:#f5ecda;
+    --err:#b6402f; --err-bg:#fbe9e5;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#15140f; --paper-2:#1f1d17; --ink:#f2ece2; --ink-soft:#b3a999;
+      --line:#38331f; --accent:#5fcba0; --accent-ink:#0c251c;
+      --ok:#5fcba0; --ok-bg:#163226; --warn:#e0b25c; --warn-bg:#2c2413;
+      --err:#e2705c; --err-bg:#2e1a14;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#15140f; --paper-2:#1f1d17; --ink:#f2ece2; --ink-soft:#b3a999;
+    --line:#38331f; --accent:#5fcba0; --accent-ink:#0c251c;
+    --ok:#5fcba0; --ok-bg:#163226; --warn:#e0b25c; --warn-bg:#2c2413;
+    --err:#e2705c; --err-bg:#2e1a14;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper); color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,sans-serif;
+    line-height:1.5; padding:0 20px 80px;
+  }
+  .wrap{max-width:760px;margin:0 auto;}
+  header{padding-block:36px 24px;border-bottom:1px solid var(--line);margin-bottom:28px;}
+  .spec{
+    font-family:"IBM Plex Mono",monospace;font-size:0.76rem;color:var(--accent);
+    text-transform:uppercase;letter-spacing:0.07em;margin:0 0 6px;
+  }
+  h1{
+    font-family:"Fraunces",serif;font-weight:600;font-size:clamp(1.6rem,4vw,2.2rem);
+    margin:0 0 8px;letter-spacing:-0.01em;
+  }
+  header p{color:var(--ink-soft);max-width:62ch;margin:0;font-size:0.96rem;}
+
+  section.step{
+    background:var(--paper-2);border:1px solid var(--line);border-radius:10px;
+    padding:20px 22px;margin-bottom:16px;
+  }
+  section.step.disabled{opacity:0.45;pointer-events:none;}
+  .step h2{
+    font-family:"IBM Plex Mono",monospace;font-size:0.82rem;text-transform:uppercase;
+    letter-spacing:0.05em;color:var(--ink-soft);margin:0 0 14px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .step h2 .n{
+    width:20px;height:20px;border-radius:50%;background:var(--accent);color:var(--accent-ink);
+    display:inline-flex;align-items:center;justify-content:center;font-size:0.72rem;flex:none;
+  }
+  label{display:block;font-size:0.85rem;font-weight:500;margin:0 0 5px;}
+  .field{margin-bottom:14px;}
+  .field:last-child{margin-bottom:0;}
+  .hint{font-size:0.78rem;color:var(--ink-soft);margin-top:4px;}
+  input[type=text], input[type=number], select{
+    width:100%;padding:9px 11px;border-radius:6px;border:1px solid var(--line);
+    background:var(--paper);color:var(--ink);font-family:"IBM Plex Mono",monospace;font-size:0.88rem;
+  }
+  input[type=file]{font-size:0.85rem;color:var(--ink-soft);}
+  .row{display:flex;gap:14px;flex-wrap:wrap;}
+  .row > .field{flex:1 1 140px;}
+  .checkrow{display:flex;align-items:center;gap:8px;}
+  .checkrow input{width:16px;height:16px;}
+  .checkrow label{margin:0;}
+
+  button{
+    font-family:"IBM Plex Sans",sans-serif;font-weight:600;font-size:0.9rem;
+    padding:10px 18px;border-radius:7px;border:none;cursor:pointer;
+  }
+  button.primary{background:var(--accent);color:var(--accent-ink);}
+  button.primary:disabled{opacity:0.4;cursor:not-allowed;}
+  button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line);}
+  button.danger{background:var(--err);color:#fff6f1;}
+
+  .statusline{
+    display:flex;align-items:center;gap:8px;margin-top:10px;
+    font-family:"IBM Plex Mono",monospace;font-size:0.8rem;color:var(--ink-soft);
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--ink-soft);flex:none;}
+  .dot.ok{background:var(--ok);} .dot.err{background:var(--err);} .dot.warn{background:var(--warn);}
+
+  .logo-preview{
+    margin-top:10px;display:flex;align-items:center;gap:12px;
+  }
+  .logo-preview img{
+    max-width:120px;max-height:80px;border:1px solid var(--line);border-radius:6px;
+    background:repeating-conic-gradient(var(--line) 0% 25%, transparent 0% 50%) 0 0/12px 12px;
+  }
+
+  .progress-track{height:10px;border-radius:999px;background:var(--line);overflow:hidden;margin-top:14px;}
+  .progress-fill{height:100%;width:0%;background:var(--accent);transition:width .25s ease;}
+  .progress-label{
+    font-family:"IBM Plex Mono",monospace;font-size:0.8rem;color:var(--ink-soft);
+    margin-top:6px;display:flex;justify-content:space-between;
+  }
+
+  .counts{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0;}
+  .count-badge{
+    font-family:"IBM Plex Mono",monospace;font-size:0.82rem;padding:6px 12px;border-radius:7px;
+  }
+  .count-badge.ok{background:var(--ok-bg);color:var(--ok);}
+  .count-badge.err{background:var(--err-bg);color:var(--err);}
+
+  .log{
+    max-height:220px;overflow-y:auto;background:var(--paper);border:1px solid var(--line);
+    border-radius:7px;padding:10px 12px;font-family:"IBM Plex Mono",monospace;font-size:0.76rem;
+    color:var(--ink-soft);margin-top:12px;
+  }
+  .log div{padding:1px 0;white-space:pre-wrap;word-break:break-word;}
+  .log div.err{color:var(--err);}
+  .log div.ok{color:var(--ok);}
+
+  .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;}
+  footer{margin-top:30px;font-size:0.8rem;color:var(--ink-soft);}
+  footer p{margin:0 0 8px;}
+  code{font-family:"IBM Plex Mono",monospace;background:var(--paper-2);padding:1px 5px;border-radius:4px;font-size:0.85em;}
+  a{color:var(--accent);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <p class="spec">Las fotos se procesan en tu navegador · los resultados quedan en tu Drive</p>
+    <h1>UTN CORRE — Procesador de fotografías</h1>
+    <p>Conectá tu cuenta de Google, pegá el link de la carpeta de Drive con las fotos del evento, y esta página les agrega el logo, las redimensiona al formato elegido, las sube a una carpeta de resultados y te arma el ZIP.</p>
+  </header>
+
+  <!-- PASO 1: CONEXIÓN -->
+  <section class="step" id="step1">
+    <h2><span class="n">1</span>Conexión con Google Drive</h2>
+    <div class="field" id="clientIdField">
+      <label for="clientId">Client ID de OAuth (de Google Cloud Console)</label>
+      <input type="text" id="clientId" placeholder="1234567890-xxxxxxxxxxxx.apps.googleusercontent.com">
+      <p class="hint">Se guarda solo en este navegador. Para no pedirlo más, completá <code>GOOGLE_CLIENT_ID</code> en <code>index.html</code> (ver <code>README.md</code>).</p>
+    </div>
+    <button class="primary" id="connectBtn">Conectar con Google</button>
+    <div class="statusline"><span class="dot" id="authDot"></span><span id="authStatus">Sin conectar</span></div>
+  </section>
+
+  <!-- PASO 2: CARPETA ORIGEN -->
+  <section class="step disabled" id="step2">
+    <h2><span class="n">2</span>Carpeta de fotos en Drive</h2>
+    <div class="field">
+      <label for="folderInput">Pegá el enlace o el ID de la carpeta</label>
+      <input type="text" id="folderInput" placeholder="https://drive.google.com/drive/folders/XXXXXXXXXXXXXXXXXXXXXXXXXXXXX">
+    </div>
+    <button class="primary" id="scanBtn">Buscar fotos</button>
+    <div class="statusline"><span class="dot" id="scanDot"></span><span id="scanStatus">Sin buscar</span></div>
+  </section>
+
+  <!-- PASO 3: LOGO -->
+  <section class="step disabled" id="step3">
+    <h2><span class="n">3</span>Logo (marca de agua)</h2>
+    <div class="field">
+      <label for="logoInput">Archivo PNG del logo</label>
+      <input type="file" id="logoInput" accept="image/png,image/webp">
+    </div>
+    <div class="logo-preview" id="logoPreview" style="display:none;">
+      <img id="logoImgPreview" alt="Logo">
+      <span class="hint" id="logoDims"></span>
+    </div>
+  </section>
+
+  <!-- PASO 4: CONFIGURACIÓN -->
+  <section class="step disabled" id="step4">
+    <h2><span class="n">4</span>Configuración</h2>
+    <div class="row">
+      <div class="field">
+        <label for="sizePct">Tamaño del logo (% del ancho)</label>
+        <input type="number" id="sizePct" value="12" min="4" max="40" step="1">
+      </div>
+      <div class="field">
+        <label for="opacityPct">Opacidad (%)</label>
+        <input type="number" id="opacityPct" value="85" min="10" max="100" step="1">
+      </div>
+      <div class="field">
+        <label for="marginPct">Margen (% del ancho)</label>
+        <input type="number" id="marginPct" value="2.5" min="0" max="10" step="0.5">
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="outFormat">Formato de salida</label>
+        <select id="outFormat">
+          <option value="jpg" selected>JPG</option>
+          <option value="webp">WebP</option>
+          <option value="png">PNG (sin pérdida, pesa más)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="quality">Calidad (%)</label>
+        <input type="number" id="quality" value="93" min="50" max="100" step="1">
+        <p class="hint">Solo JPG / WebP.</p>
+      </div>
+      <div class="field">
+        <label for="maxSide">Lado más largo (px)</label>
+        <input type="number" id="maxSide" value="0" min="0" step="100">
+        <p class="hint">0 = resolución original. Nunca agranda.</p>
+      </div>
+    </div>
+    <div class="field checkrow">
+      <input type="checkbox" id="avoidFaces" checked>
+      <label for="avoidFaces">Intentar no tapar caras (desplaza el logo si detecta un rostro debajo)</label>
+    </div>
+    <div class="field">
+      <label for="destName">Nombre de la carpeta de resultados (se crea dentro de la carpeta de origen)</label>
+      <input type="text" id="destName" value="UTN_CORRE_PROCESADAS_2026">
+    </div>
+  </section>
+
+  <!-- PASO 5: PROCESAR -->
+  <section class="step disabled" id="step5">
+    <h2><span class="n">5</span>Procesar</h2>
+    <button class="primary" id="processBtn">Procesar fotos</button>
+    <button class="ghost" id="stopBtn" style="display:none;">Detener</button>
+    <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+    <div class="progress-label"><span id="progressText">0 / 0</span><span id="progressPct">0%</span></div>
+    <div class="log" id="log"></div>
+  </section>
+
+  <!-- PASO 6: RESULTADOS -->
+  <section class="step disabled" id="step6">
+    <h2><span class="n">6</span>Resultados</h2>
+    <div class="counts">
+      <span class="count-badge ok" id="okCount">Procesadas: 0</span>
+      <span class="count-badge err" id="errCount">Fallidas: 0</span>
+    </div>
+    <div class="actions">
+      <button class="primary" id="zipBtn">Generar y descargar ZIP</button>
+      <button class="ghost" id="retryBtn" style="display:none;">Reintentar fallidas</button>
+      <a id="driveLink" href="#" target="_blank" style="display:none;align-self:center;">Abrir carpeta de resultados en Drive →</a>
+    </div>
+  </section>
+
+  <footer>
+    <p>Las fotos procesadas quedan guardadas en Drive aunque cerrés esta pestaña: si volvés a correr el proceso sobre la misma carpeta, las que ya tienen resultado se saltean automáticamente.</p>
+    <p>El ZIP se arma leyendo la carpeta de resultados en Drive (no depende de lo que se procesó en esta sesión). Con lotes muy grandes se genera en varias partes para no saturar la memoria del navegador.</p>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+  // Client ID de OAuth. Si se completa, el campo del paso 1 se oculta.
+  // No es un secreto: Google lo valida contra los "orígenes autorizados".
+  const GOOGLE_CLIENT_ID = '';
+  const FORMATS = {
+    jpg:  { mime: 'image/jpeg', ext: '.jpg'  },
+    webp: { mime: 'image/webp', ext: '.webp' },
+    png:  { mime: 'image/png',  ext: '.png'  }
+  };
+  const TARGET_SCOPE = 'https://www.googleapis.com/auth/drive';
+  const ZIP_CHUNK = 150;
+  const CONCURRENCY = 3;
+
+  let accessToken = null;
+  let tokenClient = null;
+  let sourceFolderId = null;
+  let destFolderId = null;
+  let allFiles = [];        // {id,name,mimeType}
+  let logoBitmap = null;
+  let logoAspect = 1;
+  let faceApiReady = false;
+  let running = false;
+  let results = { ok: [], failed: [] }; // failed: {name, error, file}
+
+  // ---------- persisted client id ----------
+  if (GOOGLE_CLIENT_ID){
+    $('clientId').value = GOOGLE_CLIENT_ID;
+    $('clientIdField').style.display = 'none';
+  } else {
+    try { $('clientId').value = localStorage.getItem('utn_corre_client_id') || ''; } catch (e) {}
+  }
+
+  function currentFormat(){ return FORMATS[$('outFormat').value] || FORMATS.jpg; }
+  function baseName(name){ return name.replace(/\.(jpe?g|png|webp)$/i, ''); }
+
+  // ---------- logging ----------
+  function logMsg(text, cls){
+    const el = document.createElement('div');
+    if (cls) el.className = cls;
+    el.textContent = text;
+    $('log').appendChild(el);
+    $('log').scrollTop = $('log').scrollHeight;
+  }
+
+  function setStatus(dotId, textId, text, cls){
+    $(textId).textContent = text;
+    $(dotId).className = 'dot' + (cls ? ' ' + cls : '');
+  }
+
+  function unlock(stepId){ $(stepId).classList.remove('disabled'); }
+
+  // ---------- OAuth ----------
+  function ensureTokenClient(){
+    const clientId = $('clientId').value.trim();
+    if (!clientId){ alert('Pegá primero el Client ID de OAuth (ver README.md).'); return null; }
+    try { localStorage.setItem('utn_corre_client_id', clientId); } catch (e) {}
+    if (!window.google || !google.accounts || !google.accounts.oauth2){
+      alert('Google Identity Services todavía no cargó. Esperá un segundo y probá de nuevo.');
+      return null;
+    }
+    if (!tokenClient || tokenClient.__clientId !== clientId){
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: TARGET_SCOPE,
+        callback: (resp) => {
+          if (resp.error){
+            setStatus('authDot','authStatus','Error de autorización: ' + resp.error, 'err');
+            return;
+          }
+          accessToken = resp.access_token;
+          setStatus('authDot','authStatus','Conectado', 'ok');
+          unlock('step2');
+        }
+      });
+      tokenClient.__clientId = clientId;
+    }
+    return tokenClient;
+  }
+
+  $('connectBtn').addEventListener('click', () => {
+    const tc = ensureTokenClient();
+    if (tc) tc.requestAccessToken({ prompt: accessToken ? '' : 'consent' });
+  });
+
+  // silent token refresh for long batches (tokens last ~1h)
+  setInterval(() => {
+    if (tokenClient && running) tokenClient.requestAccessToken({ prompt: '' });
+  }, 45 * 60 * 1000);
+
+  // ---------- Drive fetch helper with retry/backoff ----------
+  function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+  async function driveFetch(url, options = {}, attempt = 0){
+    options.headers = Object.assign({}, options.headers, { Authorization: 'Bearer ' + accessToken });
+    const res = await fetch(url, options);
+    if ((res.status === 403 || res.status === 429) && attempt < 4){
+      await sleep(500 * Math.pow(2, attempt));
+      return driveFetch(url, options, attempt + 1);
+    }
+    if (res.status === 401){
+      throw new Error('token_expired');
+    }
+    return res;
+  }
+
+  function extractFolderId(input){
+    input = input.trim();
+    const m = input.match(/[-\w]{20,}/);
+    return m ? m[0] : input;
+  }
+
+  // ---------- listing ----------
+  async function listImagesInFolder(folderId){
+    let files = [];
+    let pageToken = null;
+    const mimeFilter = "(mimeType='image/jpeg' or mimeType='image/png' or mimeType='image/webp' or mimeType='image/jpg')";
+    const q = encodeURIComponent(`'${folderId}' in parents and trashed = false and ${mimeFilter}`);
+    do {
+      const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name,mimeType)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true${pageToken ? '&pageToken=' + pageToken : ''}`;
+      const res = await driveFetch(url);
+      if (!res.ok) throw new Error('No se pudo listar la carpeta (HTTP ' + res.status + '). Revisá el ID/permiso.');
+      const data = await res.json();
+      files = files.concat(data.files || []);
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+    return files;
+  }
+
+  async function getOrCreateFolder(name, parentId){
+    const safeName = name.replace(/'/g, "\\'");
+    const q = encodeURIComponent(`name = '${safeName}' and '${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
+    const res = await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`);
+    const data = await res.json();
+    if (data.files && data.files.length) return data.files[0].id;
+    const createRes = await driveFetch('https://www.googleapis.com/drive/v3/files?supportsAllDrives=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, mimeType: 'application/vnd.google-apps.folder', parents: [parentId] })
+    });
+    const created = await createRes.json();
+    return created.id;
+  }
+
+  async function listAllNames(folderId){
+    const names = new Set();
+    let pageToken = null;
+    do {
+      const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
+      const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true${pageToken ? '&pageToken=' + pageToken : ''}`;
+      const res = await driveFetch(url);
+      const data = await res.json();
+      (data.files || []).forEach(f => names.add(f.name));
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+    return names;
+  }
+
+  async function downloadFile(fileId){
+    const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`);
+    if (!res.ok) throw new Error('No se pudo descargar (HTTP ' + res.status + ')');
+    return await res.blob();
+  }
+
+  async function uploadFile(blob, name, parentId){
+    const metadata = { name, parents: [parentId] };
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+    form.append('file', blob);
+    const res = await driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true', {
+      method: 'POST',
+      body: form
+    });
+    if (!res.ok) throw new Error('No se pudo subir (HTTP ' + res.status + ')');
+    return await res.json();
+  }
+
+  // ---------- step 2: scan folder ----------
+  $('scanBtn').addEventListener('click', async () => {
+    const raw = $('folderInput').value;
+    if (!raw.trim()) { alert('Pegá un enlace o ID de carpeta.'); return; }
+    sourceFolderId = extractFolderId(raw);
+    setStatus('scanDot', 'scanStatus', 'Buscando…');
+    try {
+      allFiles = await listImagesInFolder(sourceFolderId);
+      if (allFiles.length === 0){
+        setStatus('scanDot', 'scanStatus', 'La carpeta no tiene fotos (o está vacía / sin permiso).', 'warn');
+        return;
+      }
+      setStatus('scanDot', 'scanStatus', allFiles.length + ' fotos encontradas', 'ok');
+      unlock('step3'); unlock('step4'); unlock('step5'); unlock('step6');
+    } catch (e){
+      setStatus('scanDot', 'scanStatus', 'Error: ' + e.message, 'err');
+    }
+  });
+
+  // ---------- step 3: logo ----------
+  $('logoInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    logoBitmap = await createImageBitmap(file);
+    logoAspect = logoBitmap.height / logoBitmap.width;
+    $('logoImgPreview').src = URL.createObjectURL(file);
+    $('logoDims').textContent = logoBitmap.width + ' × ' + logoBitmap.height + ' px';
+    $('logoPreview').style.display = 'flex';
+  });
+
+  // ---------- face detection (optional, lazy-loaded) ----------
+  async function ensureFaceApi(){
+    if (faceApiReady) return true;
+    try {
+      await loadScript('https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js');
+      await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights');
+      faceApiReady = true;
+    } catch (e){
+      logMsg('No se pudo cargar el detector de rostros, el logo quedará siempre fijo abajo a la derecha.', 'err');
+      faceApiReady = false;
+    }
+    return faceApiReady;
+  }
+
+  function loadScript(src){
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src; s.onload = resolve; s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+
+  function rectsOverlap(a, b){
+    return a.x < b.x + b.w && a.x + a.width > b.x && a.y < b.y + b.h && a.y + a.height > b.y;
+  }
+
+  // ---------- processing ----------
+  function outputName(originalName, usedNames, ext){
+    const base = baseName(originalName);
+    let name = base + ext;
+    let n = 1;
+    while (usedNames.has(name)) { name = base + '_' + (n++) + ext; }
+    usedNames.add(name);
+    return name;
+  }
+
+  async function processOne(file, usedNames){
+    const fmt = currentFormat();
+    const blob = await downloadFile(file.id);
+    const bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' });
+
+    // Redimensionado opcional: el lado más largo se lleva a maxSide (nunca agranda).
+    const maxSide = parseInt($('maxSide').value, 10) || 0;
+    const longest = Math.max(bitmap.width, bitmap.height);
+    const scale = maxSide > 0 && longest > maxSide ? maxSide / longest : 1;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const ctx = canvas.getContext('2d');
+    if (fmt.mime === 'image/jpeg'){
+      // JPG no tiene transparencia: un PNG de origen con alfa quedaría negro.
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close && bitmap.close();
+
+    const sizePct = parseFloat($('sizePct').value) / 100;
+    const opacityPct = parseFloat($('opacityPct').value) / 100;
+    const marginPct = parseFloat($('marginPct').value) / 100;
+
+    const logoW = canvas.width * sizePct;
+    const logoH = logoW * logoAspect;
+    const margin = canvas.width * marginPct;
+    let x = canvas.width - logoW - margin;
+    let y = canvas.height - logoH - margin;
+
+    if ($('avoidFaces').checked && await ensureFaceApi()){
+      try {
+        const detections = await faceapi.detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }));
+        let rect = { x, y, w: logoW, h: logoH };
+        const blocked = detections.some(d => rectsOverlap(d.box, rect));
+        if (blocked){
+          const yUp = Math.max(margin, canvas.height - logoH - margin * 4);
+          rect = { x, y: yUp, w: logoW, h: logoH };
+          if (!detections.some(d => rectsOverlap(d.box, rect))){
+            y = yUp;
+          }
+          // if still blocked, keep the original bottom-right position —
+          // a fixed, predictable placement beats an erratic one.
+        }
+      } catch (e) { /* detection failed on this photo — keep default position */ }
+    }
+
+    ctx.globalAlpha = opacityPct;
+    ctx.drawImage(logoBitmap, x, y, logoW, logoH);
+    ctx.globalAlpha = 1;
+
+    const quality = Math.min(1, Math.max(0.5, (parseFloat($('quality').value) || 93) / 100));
+    const outBlob = await new Promise(res => canvas.toBlob(res, fmt.mime, quality));
+    canvas.width = 0; canvas.height = 0;
+    if (!outBlob || outBlob.type !== fmt.mime){
+      throw new Error('El navegador no pudo generar ' + fmt.ext + ' (probá con Chrome o con JPG).');
+    }
+
+    const outName = outputName(file.name, usedNames, fmt.ext);
+    await uploadFile(outBlob, outName, destFolderId);
+    return outName;
+  }
+
+  async function runBatch(fileList, existingNames){
+    // Arranca con los nombres que ya hay en Drive para no subir duplicados.
+    const usedNames = new Set(existingNames || []);
+    let idx = 0;
+    let doneCount = results.ok.length + results.failed.length;
+    const total = fileList.length + doneCount;
+
+    function updateProgress(){
+      const done = results.ok.length + results.failed.length;
+      const pct = total ? Math.round((done / total) * 100) : 0;
+      $('progressFill').style.width = pct + '%';
+      $('progressText').textContent = done + ' / ' + total;
+      $('progressPct').textContent = pct + '%';
+      $('okCount').textContent = 'Procesadas: ' + results.ok.length;
+      $('errCount').textContent = 'Fallidas: ' + results.failed.length;
+    }
+
+    async function worker(){
+      while (idx < fileList.length && running){
+        const file = fileList[idx++];
+        try {
+          const outName = await processOne(file, usedNames);
+          results.ok.push(file.name);
+          logMsg(file.name + ' → ' + outName, 'ok');
+        } catch (e){
+          results.failed.push({ name: file.name, error: e.message, file });
+          logMsg(file.name + ' → ERROR: ' + e.message, 'err');
+        }
+        updateProgress();
+      }
+    }
+    updateProgress();
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  }
+
+  $('processBtn').addEventListener('click', async () => {
+    if (!logoBitmap){ alert('Subí primero el logo PNG.'); return; }
+    if (!sourceFolderId){ alert('Buscá primero la carpeta de fotos.'); return; }
+
+    running = true;
+    results = { ok: [], failed: [] };
+    $('log').innerHTML = '';
+    $('processBtn').disabled = true;
+    $('stopBtn').style.display = 'inline-block';
+    unlock('step6');
+
+    try {
+      destFolderId = await getOrCreateFolder($('destName').value.trim() || 'UTN_CORRE_PROCESADAS', sourceFolderId);
+      $('driveLink').href = 'https://drive.google.com/drive/folders/' + destFolderId;
+      $('driveLink').style.display = 'inline';
+
+      const ext = currentFormat().ext;
+      const existingNames = await listAllNames(destFolderId);
+      const pending = allFiles.filter(f => !existingNames.has(baseName(f.name) + ext));
+      if (pending.length < allFiles.length){
+        logMsg((allFiles.length - pending.length) + ' fotos ya tenían resultado ' + ext + ' en Drive — se saltean.');
+      }
+      await runBatch(pending, existingNames);
+    } catch (e){
+      logMsg('Error general: ' + e.message, 'err');
+    }
+
+    running = false;
+    $('processBtn').disabled = false;
+    $('stopBtn').style.display = 'none';
+    $('retryBtn').style.display = results.failed.length ? 'inline-block' : 'none';
+  });
+
+  $('stopBtn').addEventListener('click', () => { running = false; });
+
+  $('retryBtn').addEventListener('click', async () => {
+    const toRetry = results.failed.map(f => f.file);
+    results.failed = [];
+    running = true;
+    $('processBtn').disabled = true;
+    $('stopBtn').style.display = 'inline-block';
+    try {
+      await runBatch(toRetry, await listAllNames(destFolderId));
+    } catch (e){
+      logMsg('Error general: ' + e.message, 'err');
+    }
+    running = false;
+    $('processBtn').disabled = false;
+    $('stopBtn').style.display = 'none';
+    $('retryBtn').style.display = results.failed.length ? 'inline-block' : 'none';
+  });
+
+  // ---------- ZIP (always rebuilt from the Drive results folder) ----------
+  function triggerDownload(blob, name){
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+
+  $('zipBtn').addEventListener('click', async () => {
+    if (!destFolderId && !sourceFolderId){ alert('Buscá primero la carpeta de fotos.'); return; }
+    $('zipBtn').disabled = true;
+    try {
+      // Permite bajar el ZIP otro día sin reprocesar: busca/crea la carpeta de resultados.
+      if (!destFolderId){
+        destFolderId = await getOrCreateFolder($('destName').value.trim() || 'UTN_CORRE_PROCESADAS', sourceFolderId);
+      }
+      const files = await listImagesInFolder(destFolderId);
+      if (!files.length){ alert('La carpeta de resultados está vacía.'); return; }
+      const chunks = [];
+      for (let i = 0; i < files.length; i += ZIP_CHUNK) chunks.push(files.slice(i, i + ZIP_CHUNK));
+      for (let c = 0; c < chunks.length; c++){
+        logMsg('Generando ZIP ' + (c + 1) + ' / ' + chunks.length + '…');
+        const zip = new JSZip();
+        for (const f of chunks[c]){
+          const blob = await downloadFile(f.id);
+          zip.file(f.name, blob);
+        }
+        // STORE: las imágenes ya vienen comprimidas, recomprimir solo gasta CPU.
+        const content = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+        const zipName = chunks.length > 1
+          ? `UTN_CORRE_FOTOS_CON_LOGO_parte${c + 1}de${chunks.length}.zip`
+          : 'UTN_CORRE_FOTOS_CON_LOGO.zip';
+        triggerDownload(content, zipName);
+      }
+      logMsg('ZIP(s) listo(s).', 'ok');
+    } catch (e){
+      logMsg('Error generando el ZIP: ' + e.message, 'err');
+    } finally {
+      $('zipBtn').disabled = false;
+    }
+  });
+
+})();
+</script>
+</body>
+</html>
