@@ -506,16 +506,25 @@
   }
 
   // ---------- processing ----------
-  function outputName(originalName, usedNames, ext){
-    const base = baseName(originalName);
-    let name = base + ext;
-    let n = 1;
-    while (usedNames.has(name)) { name = base + '_' + (n++) + ext; }
-    usedNames.add(name);
-    return name;
+  // Asigna el nombre de salida de cada foto antes de procesar, en un orden fijo
+  // (nombre, id). Así "A.jpg" y "A.png" siempre terminan como A.jpg y A_1.jpg,
+  // sin importar cuál se procesa primero, y reanudar sabe exactamente qué falta.
+  function planOutputNames(files, ext){
+    const sorted = files.slice().sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+    const used = new Set();
+    const plan = new Map();
+    for (const f of sorted){
+      const base = baseName(f.name);
+      let name = base + ext;
+      let n = 1;
+      while (used.has(name)) { name = base + '_' + (n++) + ext; }
+      used.add(name);
+      plan.set(f.id, name);
+    }
+    return plan;
   }
 
-  async function processOne(file, usedNames, signal){
+  async function processOne(file, outName, signal){
     const fmt = currentFormat();
     const blob = await downloadFile(file.id, signal);
     signal.throwIfAborted();
@@ -578,19 +587,11 @@
       throw new Error('El navegador no pudo generar ' + fmt.ext + ' (probá con Chrome o con JPG).');
     }
 
-    const outName = outputName(file.name, usedNames, fmt.ext);
-    try {
-      await uploadFile(outBlob, outName, destFolderId, signal);
-    } catch (e){
-      usedNames.delete(outName);
-      throw e;
-    }
+    await uploadFile(outBlob, outName, destFolderId, signal);
     return outName;
   }
 
-  async function runBatch(fileList, existingNames, signal){
-    // Arranca con los nombres que ya hay en Drive para no subir duplicados.
-    const usedNames = new Set(existingNames || []);
+  async function runBatch(fileList, plan, signal){
     let idx = 0;
     let doneCount = results.ok.length + results.failed.length;
     const total = fileList.length + doneCount;
@@ -609,7 +610,7 @@
       while (idx < fileList.length && running){
         const file = fileList[idx++];
         try {
-          const outName = await processOne(file, usedNames, signal);
+          const outName = await processOne(file, plan.get(file.id), signal);
           results.ok.push(file.name);
           logMsg(file.name + ' → ' + outName, 'ok');
         } catch (e){
@@ -663,12 +664,13 @@
 
       // Lo que ya está en Drive se saltea: así funciona reanudar después de "Detener".
       const ext = currentFormat().ext;
+      const plan = planOutputNames(allFiles, ext);
       const existingNames = await listAllNames(destFolderId);
-      const pending = allFiles.filter(f => !existingNames.has(baseName(f.name) + ext));
+      const pending = allFiles.filter(f => !existingNames.has(plan.get(f.id)));
       if (pending.length < allFiles.length){
         logMsg((allFiles.length - pending.length) + ' fotos ya tenían resultado ' + ext + ' en Drive — se saltean.');
       }
-      await runBatch(pending, existingNames, signal);
+      await runBatch(pending, plan, signal);
     });
   });
 
@@ -684,7 +686,7 @@
     const toRetry = results.failed.map(f => f.file);
     results.failed = [];
     startRun(async (signal) => {
-      await runBatch(toRetry, await listAllNames(destFolderId), signal);
+      await runBatch(toRetry, planOutputNames(allFiles, currentFormat().ext), signal);
     });
   });
 
