@@ -175,6 +175,7 @@
     </div>
     <button class="primary" id="scanBtn">Buscar fotos</button>
     <div class="statusline"><span class="dot" id="scanDot"></span><span id="scanStatus">Sin buscar</span></div>
+    <button class="ghost" id="useParentBtn" type="button" hidden style="margin-top:10px;">Usar la carpeta de origen</button>
   </section>
 
   <!-- PASO 3: LOGO -->
@@ -457,19 +458,53 @@
     return await res.json();
   }
 
+  async function getFolderInfo(folderId){
+    const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${folderId}?fields=id,name,parents,mimeType&supportsAllDrives=true`);
+    if (!res.ok) throw new Error('No se encontró la carpeta (HTTP ' + res.status + '). Revisá el link y el permiso.');
+    const data = await res.json();
+    if (data.mimeType && data.mimeType !== 'application/vnd.google-apps.folder') throw new Error('El link no es de una carpeta.');
+    return data;
+  }
+
+  function isResultsFolder(name){
+    const dest = $('destName').value.trim() || 'UTN_CORRE_PROCESADAS';
+    return name === dest || /PROCESADAS/i.test(name);
+  }
+
   // ---------- step 2: scan folder ----------
   $('scanBtn').addEventListener('click', async () => {
     const raw = $('folderInput').value;
     if (!raw.trim()) { alert('Pegá un enlace o ID de carpeta.'); return; }
-    sourceFolderId = extractFolderId(raw);
+    const folderId = extractFolderId(raw);
+    sourceFolderId = null;
+    allFiles = [];
+    $('useParentBtn').hidden = true;
     setStatus('scanDot', 'scanStatus', 'Buscando…');
     try {
-      allFiles = await listImagesInFolder(sourceFolderId);
-      if (allFiles.length === 0){
-        setStatus('scanDot', 'scanStatus', 'La carpeta no tiene fotos (o está vacía / sin permiso).', 'warn');
+      const folder = await getFolderInfo(folderId);
+      // Si se pega la carpeta de resultados, sus fotos ya tienen logo y se
+      // le pondría un segundo logo encima.
+      if (isResultsFolder(folder.name)){
+        setStatus('scanDot', 'scanStatus', '«' + folder.name + '» es una carpeta de resultados: sus fotos ya tienen el logo. Usá la carpeta con las fotos originales.', 'err');
+        ['step3', 'step4', 'step5', 'step6'].forEach(id => $(id).classList.add('disabled'));
+        if (folder.parents && folder.parents[0]){
+          $('useParentBtn').hidden = false;
+          $('useParentBtn').onclick = () => {
+            $('folderInput').value = 'https://drive.google.com/drive/folders/' + folder.parents[0];
+            $('scanBtn').click();
+          };
+        }
         return;
       }
-      setStatus('scanDot', 'scanStatus', allFiles.length + ' fotos encontradas', 'ok');
+      const files = await listImagesInFolder(folderId);
+      if (files.length === 0){
+        setStatus('scanDot', 'scanStatus', '«' + folder.name + '» no tiene fotos (o no tenés permiso para verlas).', 'warn');
+        return;
+      }
+      sourceFolderId = folderId;
+      allFiles = files;
+      destFolderId = null;
+      setStatus('scanDot', 'scanStatus', allFiles.length + ' fotos en «' + folder.name + '»', 'ok');
       unlock('step3'); unlock('step4'); unlock('step5'); unlock('step6');
       fillPreviewSelect();
     } catch (e){
