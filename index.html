@@ -102,6 +102,19 @@
     background:repeating-conic-gradient(var(--line) 0% 25%, transparent 0% 50%) 0 0/12px 12px;
   }
 
+  .preview{margin-top:4px;padding-top:14px;border-top:1px solid var(--line);}
+  .preview-head{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+  .preview-head label{margin:0 auto 0 0;}
+  .preview-head select{width:auto;max-width:min(52vw,320px);}
+  button.small{padding:6px 11px;font-size:0.95rem;line-height:1;}
+  .preview-stage{
+    border:1px solid var(--line);border-radius:7px;overflow:hidden;min-height:120px;
+    display:flex;align-items:center;justify-content:center;
+    background:repeating-conic-gradient(var(--line) 0% 25%, var(--paper) 0% 50%) 0 0/16px 16px;
+  }
+  .preview-stage canvas{display:block;max-width:100%;max-height:70vh;width:auto;height:auto;}
+  .preview-stage .hint{margin:0;padding:24px;background:var(--paper);border-radius:6px;}
+
   .progress-track{height:10px;border-radius:999px;background:var(--line);overflow:hidden;margin-top:14px;}
   .progress-fill{height:100%;width:0%;background:var(--accent);transition:width .25s ease;}
   .progress-label{
@@ -213,6 +226,19 @@
         <input type="number" id="maxSide" value="0" min="0" step="100">
         <p class="hint">0 = resolución original. Nunca agranda.</p>
       </div>
+    </div>
+    <div class="field preview">
+      <div class="preview-head">
+        <label for="previewSelect">Vista previa</label>
+        <button class="ghost small" id="prevPhoto" type="button" aria-label="Foto anterior">‹</button>
+        <select id="previewSelect"></select>
+        <button class="ghost small" id="nextPhoto" type="button" aria-label="Foto siguiente">›</button>
+      </div>
+      <div class="preview-stage">
+        <canvas id="previewCanvas" hidden></canvas>
+        <p class="hint" id="previewEmpty">Subí el logo para ver cómo queda una foto de la carpeta.</p>
+      </div>
+      <p class="hint" id="previewInfo"></p>
     </div>
     <div class="field">
       <label for="destName">Nombre de la carpeta de resultados (se crea dentro de la carpeta de origen)</label>
@@ -445,6 +471,7 @@
       }
       setStatus('scanDot', 'scanStatus', allFiles.length + ' fotos encontradas', 'ok');
       unlock('step3'); unlock('step4'); unlock('step5'); unlock('step6');
+      fillPreviewSelect();
     } catch (e){
       setStatus('scanDot', 'scanStatus', 'Error: ' + e.message, 'err');
     }
@@ -459,6 +486,7 @@
     $('logoImgPreview').src = URL.createObjectURL(file);
     $('logoDims').textContent = logoBitmap.width + ' × ' + logoBitmap.height + ' px';
     $('logoPreview').style.display = 'flex';
+    renderPreview();
   });
 
   // ---------- processing ----------
@@ -480,20 +508,21 @@
     return plan;
   }
 
-  async function processOne(file, outName, signal){
-    const fmt = currentFormat();
-    const blob = await downloadFile(file.id, signal);
-    signal.throwIfAborted();
-    const bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' });
+  function num(id, def){ const v = parseFloat($(id).value); return isFinite(v) ? v : def; }
+  function currentQuality(){ return Math.min(1, Math.max(0.5, num('quality', 93) / 100)); }
 
-    // Redimensionado opcional: el lado más largo se lleva a maxSide (nunca agranda).
-    const maxSide = parseInt($('maxSide').value, 10) || 0;
-    const longest = Math.max(bitmap.width, bitmap.height);
+  // Tamaño final: el lado más largo se lleva a maxSide (nunca agranda).
+  function outputSize(w, h){
+    const maxSide = Math.max(0, Math.round(num('maxSide', 0)));
+    const longest = Math.max(w, h);
     const scale = maxSide > 0 && longest > maxSide ? maxSide / longest : 1;
+    return { w: Math.round(w * scale), h: Math.round(h * scale) };
+  }
 
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(bitmap.width * scale);
-    canvas.height = Math.round(bitmap.height * scale);
+  // Dibuja la foto + logo ocupando todo `canvas`. Lo usan el procesamiento y la
+  // vista previa: como todo se mide en % del ancho, la vista previa a menor
+  // tamaño queda proporcionalmente idéntica al resultado.
+  function compose(canvas, bitmap, fmt){
     const ctx = canvas.getContext('2d');
     if (fmt.mime === 'image/jpeg'){
       // JPG no tiene transparencia: un PNG de origen con alfa quedaría negro.
@@ -502,24 +531,29 @@
     }
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+    const logoW = canvas.width * num('sizePct', 12) / 100;
+    const logoH = logoW * logoAspect;
+    const margin = canvas.width * num('marginPct', 2.5) / 100;
+    ctx.globalAlpha = Math.min(1, Math.max(0, num('opacityPct', 85) / 100));
+    ctx.drawImage(logoBitmap, canvas.width - logoW - margin, canvas.height - logoH - margin, logoW, logoH);
+    ctx.globalAlpha = 1;
+  }
+
+  async function processOne(file, outName, signal){
+    const fmt = currentFormat();
+    const blob = await downloadFile(file.id, signal);
+    signal.throwIfAborted();
+    const bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' });
+
+    const out = outputSize(bitmap.width, bitmap.height);
+    const canvas = document.createElement('canvas');
+    canvas.width = out.w;
+    canvas.height = out.h;
+    compose(canvas, bitmap, fmt);
     bitmap.close && bitmap.close();
 
-    const sizePct = parseFloat($('sizePct').value) / 100;
-    const opacityPct = parseFloat($('opacityPct').value) / 100;
-    const marginPct = parseFloat($('marginPct').value) / 100;
-
-    const logoW = canvas.width * sizePct;
-    const logoH = logoW * logoAspect;
-    const margin = canvas.width * marginPct;
-    const x = canvas.width - logoW - margin;
-    const y = canvas.height - logoH - margin;
-
-    ctx.globalAlpha = opacityPct;
-    ctx.drawImage(logoBitmap, x, y, logoW, logoH);
-    ctx.globalAlpha = 1;
-
-    const quality = Math.min(1, Math.max(0.5, (parseFloat($('quality').value) || 93) / 100));
-    const outBlob = await new Promise(res => canvas.toBlob(res, fmt.mime, quality));
+    const outBlob = await new Promise(res => canvas.toBlob(res, fmt.mime, currentQuality()));
     canvas.width = 0; canvas.height = 0;
     signal.throwIfAborted();
     if (!outBlob || outBlob.type !== fmt.mime){
@@ -529,6 +563,97 @@
     await uploadFile(outBlob, outName, destFolderId, signal);
     return outName;
   }
+
+  // ---------- vista previa ----------
+  let previewBitmap = null;   // foto de ejemplo a resolución original
+  let previewLoadSeq = 0;     // descarta descargas viejas si se cambia de foto rápido
+  let previewSizeSeq = 0;     // ídem para el cálculo del peso
+  let previewSizeTimer = null;
+  const PREVIEW_MAX = 1200;   // px del canvas de la vista previa
+
+  function formatBytes(n){
+    return n >= 1048576 ? (n / 1048576).toFixed(1).replace('.', ',') + ' MB' : Math.round(n / 1024) + ' KB';
+  }
+
+  function fillPreviewSelect(){
+    const sel = $('previewSelect');
+    sel.innerHTML = '';
+    allFiles.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach(f => {
+      const o = document.createElement('option');
+      o.value = f.id; o.textContent = f.name;
+      sel.appendChild(o);
+    });
+    loadPreviewPhoto(sel.value);
+  }
+
+  async function loadPreviewPhoto(fileId){
+    if (!fileId) return;
+    const seq = ++previewLoadSeq;
+    $('previewInfo').textContent = 'Descargando foto de ejemplo…';
+    try {
+      const blob = await downloadFile(fileId);
+      const bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' });
+      if (seq !== previewLoadSeq){ bmp.close(); return; }
+      if (previewBitmap) previewBitmap.close();
+      previewBitmap = bmp;
+      renderPreview();
+    } catch (e){
+      if (seq === previewLoadSeq) $('previewInfo').textContent = 'No se pudo cargar esta foto: ' + e.message;
+    }
+  }
+
+  function renderPreview(){
+    const canvas = $('previewCanvas');
+    if (!previewBitmap || !logoBitmap){
+      canvas.hidden = true;
+      $('previewEmpty').hidden = false;
+      $('previewEmpty').textContent = !logoBitmap
+        ? 'Subí el logo para ver cómo queda una foto de la carpeta.'
+        : 'Cargando foto de ejemplo…';
+      return;
+    }
+    const fmt = currentFormat();
+    const out = outputSize(previewBitmap.width, previewBitmap.height);
+    const k = Math.min(1, PREVIEW_MAX / Math.max(out.w, out.h));
+    canvas.width = Math.round(out.w * k);
+    canvas.height = Math.round(out.h * k);
+    compose(canvas, previewBitmap, fmt);
+    canvas.hidden = false;
+    $('previewEmpty').hidden = true;
+
+    const fmtLabel = $('outFormat').value.toUpperCase() + (fmt.mime === 'image/png' ? '' : ' ' + Math.round(currentQuality() * 100) + ' %');
+    const dims = previewBitmap.width + '×' + previewBitmap.height +
+      (out.w !== previewBitmap.width ? ' → ' + out.w + '×' + out.h : '') + ' px · ' + fmtLabel;
+    $('previewInfo').textContent = dims + ' · calculando peso…';
+
+    // El peso real sale de codificar la foto completa: se hace con una pausa
+    // para no recalcular en cada tecla.
+    clearTimeout(previewSizeTimer);
+    const seq = ++previewSizeSeq;
+    previewSizeTimer = setTimeout(async () => {
+      const full = document.createElement('canvas');
+      full.width = out.w; full.height = out.h;
+      compose(full, previewBitmap, fmt);
+      const blob = await new Promise(res => full.toBlob(res, fmt.mime, currentQuality()));
+      full.width = 0; full.height = 0;
+      if (seq !== previewSizeSeq) return;
+      $('previewInfo').textContent = dims + ' · ' + (blob ? 'pesa ~' + formatBytes(blob.size) + ' por foto' : 'formato no soportado por este navegador');
+    }, 600);
+  }
+
+  ['sizePct', 'opacityPct', 'marginPct', 'outFormat', 'quality', 'maxSide'].forEach(id => {
+    $(id).addEventListener('input', renderPreview);
+    $(id).addEventListener('change', renderPreview);
+  });
+  $('previewSelect').addEventListener('change', () => loadPreviewPhoto($('previewSelect').value));
+  function stepPreview(delta){
+    const sel = $('previewSelect');
+    if (!sel.options.length) return;
+    sel.selectedIndex = (sel.selectedIndex + delta + sel.options.length) % sel.options.length;
+    loadPreviewPhoto(sel.value);
+  }
+  $('prevPhoto').addEventListener('click', () => stepPreview(-1));
+  $('nextPhoto').addEventListener('click', () => stepPreview(1));
 
   async function runBatch(fileList, plan, signal){
     let idx = 0;
