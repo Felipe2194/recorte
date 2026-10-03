@@ -63,28 +63,36 @@
     width:20px;height:20px;border-radius:50%;background:var(--accent);color:var(--accent-ink);
     display:inline-flex;align-items:center;justify-content:center;font-size:0.72rem;flex:none;
   }
-  label{display:block;font-size:0.85rem;font-weight:500;margin:0 0 5px;}
+  [hidden]{display:none !important;}
+  label, .label-text{display:block;font-size:0.85rem;font-weight:500;margin:0 0 5px;}
+  label.button{display:inline-flex;margin:0;font-size:0.9rem;}
   .field{margin-bottom:14px;}
   .field:last-child{margin-bottom:0;}
   .hint{font-size:0.78rem;color:var(--ink-soft);margin-top:4px;}
   input[type=text], input[type=number], select{
-    width:100%;padding:9px 11px;border-radius:6px;border:1px solid var(--line);
+    width:100%;min-height:44px;padding:9px 11px;border-radius:6px;border:1px solid var(--line);
     background:var(--paper);color:var(--ink);font-family:"IBM Plex Mono",monospace;font-size:0.88rem;
   }
-  input[type=file]{font-size:0.85rem;color:var(--ink-soft);}
+  /* Selector de archivo propio: el nativo no se puede estilizar y desborda en pantallas chicas. */
+  .filepick{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .filepick .hint{margin:0;min-width:0;overflow-wrap:anywhere;}
+  .visually-hidden{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0 0 0 0);}
+  .visually-hidden:focus-visible + .filepick label{outline:2px solid var(--accent);outline-offset:2px;}
   .row{display:flex;gap:14px;flex-wrap:wrap;}
   .row > .field{flex:1 1 140px;}
   .checkrow{display:flex;align-items:center;gap:8px;}
   .checkrow input{width:16px;height:16px;}
   .checkrow label{margin:0;}
 
-  button{
+  button, .button{
     font-family:"IBM Plex Sans",sans-serif;font-weight:600;font-size:0.9rem;
-    padding:10px 18px;border-radius:7px;border:none;cursor:pointer;
+    min-height:44px;padding:10px 18px;border-radius:7px;border:none;cursor:pointer;
+    display:inline-flex;align-items:center;justify-content:center;margin:0;
+    touch-action:manipulation;
   }
   button.primary{background:var(--accent);color:var(--accent-ink);}
   button.primary:disabled{opacity:0.4;cursor:not-allowed;}
-  button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line);}
+  button.ghost, .button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line);}
   button.danger{background:var(--err);color:#fff6f1;}
 
   .statusline{
@@ -106,7 +114,7 @@
   .preview-head{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
   .preview-head label{margin:0 auto 0 0;}
   .preview-head select{width:auto;max-width:min(52vw,320px);}
-  button.small{padding:6px 11px;font-size:0.95rem;line-height:1;}
+  button.small{min-width:44px;padding:6px 11px;font-size:1.1rem;line-height:1;}
   .preview-stage{
     border:1px solid var(--line);border-radius:7px;overflow:hidden;min-height:120px;
     display:flex;align-items:center;justify-content:center;
@@ -134,6 +142,7 @@
     border-radius:7px;padding:10px 12px;font-family:"IBM Plex Mono",monospace;font-size:0.76rem;
     color:var(--ink-soft);margin-top:12px;
   }
+  .log:empty{display:none;}
   .log div{padding:1px 0;white-space:pre-wrap;word-break:break-word;}
   .log div.err{color:var(--err);}
   .log div.ok{color:var(--ok);}
@@ -143,6 +152,30 @@
   footer p{margin:0 0 8px;}
   code{font-family:"IBM Plex Mono",monospace;background:var(--paper-2);padding:1px 5px;border-radius:4px;font-size:0.85em;}
   a{color:var(--accent);}
+  .statusline{align-items:flex-start;overflow-wrap:anywhere;}
+  .statusline .dot{margin-top:0.45em;}
+  .mobile-only{display:none;}
+
+  /* Pantallas táctiles: 16 px en los campos evita que iOS agrande la página al tocarlos. */
+  @media (pointer: coarse){
+    input[type=text], input[type=number], select{font-size:16px;}
+    .mobile-only{display:block;}
+  }
+
+  @media (max-width: 560px){
+    body{padding:0 16px calc(56px + env(safe-area-inset-bottom));}
+    header{padding-block:24px 18px;margin-bottom:20px;}
+    section.step{padding:16px 14px;border-radius:9px;margin-bottom:12px;}
+    .row{gap:14px 12px;margin-bottom:14px;}
+    .row > .field{flex:1 1 100%;margin-bottom:0;}
+    .actions > *, .step > button.primary{flex:1 1 100%;width:100%;}
+    .actions a{text-align:center;padding:8px 0;}
+    .preview-head{flex-wrap:wrap;}
+    .preview-head label{flex:1 1 100%;margin:0 0 2px;}
+    .preview-head select{flex:1 1 0;max-width:none;min-width:0;}
+    .preview-stage canvas{max-height:55vh;}
+    .log{max-height:180px;}
+  }
 </style>
 </head>
 <body>
@@ -182,8 +215,12 @@
   <section class="step disabled" id="step3">
     <h2><span class="n">3</span>Logo (marca de agua)</h2>
     <div class="field">
-      <label for="logoInput">Archivo PNG del logo</label>
-      <input type="file" id="logoInput" accept="image/png,image/webp">
+      <p class="label-text">Archivo PNG del logo</p>
+      <input type="file" id="logoInput" class="visually-hidden" accept="image/png,image/webp">
+      <div class="filepick">
+        <label for="logoInput" class="button ghost">Elegir archivo</label>
+        <span class="hint" id="logoFileName">Ningún archivo elegido</span>
+      </div>
     </div>
     <div class="logo-preview" id="logoPreview" style="display:none;">
       <img id="logoImgPreview" alt="Logo">
@@ -250,8 +287,11 @@
   <!-- PASO 5: PROCESAR -->
   <section class="step disabled" id="step5">
     <h2><span class="n">5</span>Procesar</h2>
-    <button class="primary" id="processBtn">Procesar fotos</button>
-    <button class="ghost" id="stopBtn" style="display:none;">Detener</button>
+    <p class="hint mobile-only" style="margin:0 0 12px;">En el celular: dejá esta pantalla abierta mientras procesa. Si cambiás de app o se bloquea, el navegador pausa el proceso (podés reanudarlo).</p>
+    <div class="actions" style="margin-top:0;">
+      <button class="primary" id="processBtn">Procesar fotos</button>
+      <button class="ghost" id="stopBtn" style="display:none;">Detener</button>
+    </div>
     <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
     <div class="progress-label"><span id="progressText">0 / 0</span><span id="progressPct">0%</span></div>
     <div class="log" id="log"></div>
@@ -290,8 +330,13 @@
     png:  { mime: 'image/png',  ext: '.png'  }
   };
   const TARGET_SCOPE = 'https://www.googleapis.com/auth/drive';
-  const ZIP_CHUNK = 150;
-  const CONCURRENCY = 3;
+  // En celulares la memoria es mucho más chica: de a una foto y ZIPs más cortos
+  // para que el navegador no cierre la pestaña.
+  const IS_MOBILE = matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820;
+  const ZIP_CHUNK = IS_MOBILE ? 30 : 150;
+  const CONCURRENCY = IS_MOBILE ? 1 : 3;
+  // Safari (iPhone/iPad) no deja crear canvas de más de ~16,7 MP.
+  const IOS_CANVAS_MAX = 16777216;
 
   let accessToken = null;
   let tokenClient = null;
@@ -311,6 +356,37 @@
   } else {
     try { $('clientId').value = localStorage.getItem('utn_corre_client_id') || ''; } catch (e) {}
   }
+
+  // Safari no sabe exportar WebP: se deshabilita la opción en vez de fallar foto por foto.
+  (function checkWebp(){
+    const c = document.createElement('canvas'); c.width = c.height = 1;
+    if (!c.toDataURL('image/webp').startsWith('data:image/webp')){
+      const opt = $('outFormat').querySelector('option[value="webp"]');
+      opt.disabled = true;
+      opt.textContent = 'WebP (no disponible en este navegador)';
+    }
+  })();
+
+  // Mantiene la pantalla encendida mientras se procesa (si el celular se bloquea, el
+  // navegador pausa la pestaña). El sistema lo libera al ocultar la página, así que
+  // se vuelve a pedir al regresar.
+  let wakeLock = null;
+  let wantWakeLock = false;
+  async function keepAwake(on){
+    wantWakeLock = on;
+    try {
+      if (on && !wakeLock && 'wakeLock' in navigator && document.visibilityState === 'visible'){
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+      } else if (!on && wakeLock){
+        await wakeLock.release();
+        wakeLock = null;
+      }
+    } catch (e) { /* no soportado o denegado: se sigue igual */ }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && wantWakeLock) keepAwake(true);
+  });
 
   function currentFormat(){ return FORMATS[$('outFormat').value] || FORMATS.jpg; }
   function baseName(name){ return name.replace(/\.(jpe?g|png|webp)$/i, ''); }
@@ -520,6 +596,7 @@
     logoAspect = logoBitmap.height / logoBitmap.width;
     $('logoImgPreview').src = URL.createObjectURL(file);
     $('logoDims').textContent = logoBitmap.width + ' × ' + logoBitmap.height + ' px';
+    $('logoFileName').textContent = file.name;
     $('logoPreview').style.display = 'flex';
     renderPreview();
   });
@@ -591,6 +668,9 @@
     const outBlob = await new Promise(res => canvas.toBlob(res, fmt.mime, currentQuality()));
     canvas.width = 0; canvas.height = 0;
     signal.throwIfAborted();
+    if (!outBlob && out.w * out.h > IOS_CANVAS_MAX){
+      throw new Error('Foto demasiado grande para este dispositivo (' + out.w + '×' + out.h + '). Poné "Lado más largo" en 4000 o procesala desde una computadora.');
+    }
     if (!outBlob || outBlob.type !== fmt.mime){
       throw new Error('El navegador no pudo generar ' + fmt.ext + ' (probá con Chrome o con JPG).');
     }
@@ -672,7 +752,9 @@
       const blob = await new Promise(res => full.toBlob(res, fmt.mime, currentQuality()));
       full.width = 0; full.height = 0;
       if (seq !== previewSizeSeq) return;
-      $('previewInfo').textContent = dims + ' · ' + (blob ? 'pesa ~' + formatBytes(blob.size) + ' por foto' : 'formato no soportado por este navegador');
+      $('previewInfo').textContent = dims + ' · ' + (blob ? 'pesa ~' + formatBytes(blob.size) + ' por foto'
+        : out.w * out.h > IOS_CANVAS_MAX ? 'demasiado grande para este dispositivo: bajá "Lado más largo"'
+        : 'formato no soportado por este navegador');
     }, 600);
   }
 
@@ -736,11 +818,13 @@
     $('stopBtn').textContent = 'Detener';
     $('stopBtn').style.display = 'inline-block';
     unlock('step6');
+    keepAwake(true);
     try {
       await job(signal);
     } catch (e){
       if (!signal.aborted) logMsg('Error general: ' + e.message, 'err');
     }
+    keepAwake(false);
     running = false;
     abortCtrl = null;
     if (signal.aborted) logMsg('Detenido. Tocá "Reanudar" para seguir con las que faltan.');
@@ -795,12 +879,18 @@
     const a = document.createElement('a');
     a.href = url; a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    // En el celular el aviso de descarga puede tardar: se libera recién al minuto.
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
+
+  // En el celular se arma una parte por toque: los navegadores móviles bloquean
+  // varias descargas automáticas seguidas y así no se acumulan partes en memoria.
+  let zipNextPart = 0;
 
   $('zipBtn').addEventListener('click', async () => {
     if (!destFolderId && !sourceFolderId){ alert('Buscá primero la carpeta de fotos.'); return; }
     $('zipBtn').disabled = true;
+    keepAwake(true);
     try {
       // Permite bajar el ZIP otro día sin reprocesar: busca/crea la carpeta de resultados.
       if (!destFolderId){
@@ -808,9 +898,13 @@
       }
       const files = await listImagesInFolder(destFolderId);
       if (!files.length){ alert('La carpeta de resultados está vacía.'); return; }
+      files.sort((a, b) => a.name.localeCompare(b.name));
       const chunks = [];
       for (let i = 0; i < files.length; i += ZIP_CHUNK) chunks.push(files.slice(i, i + ZIP_CHUNK));
-      for (let c = 0; c < chunks.length; c++){
+      if (zipNextPart >= chunks.length) zipNextPart = 0;
+      const first = IS_MOBILE ? zipNextPart : 0;
+      const last = IS_MOBILE ? zipNextPart + 1 : chunks.length;
+      for (let c = first; c < last; c++){
         logMsg('Generando ZIP ' + (c + 1) + ' / ' + chunks.length + '…');
         const zip = new JSZip();
         for (const f of chunks[c]){
@@ -824,10 +918,19 @@
           : 'UTN_CORRE_FOTOS_CON_LOGO.zip';
         triggerDownload(content, zipName);
       }
-      logMsg('ZIP(s) listo(s).', 'ok');
+      if (IS_MOBILE && last < chunks.length){
+        zipNextPart = last;
+        $('zipBtn').textContent = 'Descargar parte ' + (last + 1) + ' de ' + chunks.length;
+        logMsg('Parte ' + last + ' de ' + chunks.length + ' lista. Tocá el botón para la siguiente.', 'ok');
+      } else {
+        zipNextPart = 0;
+        $('zipBtn').textContent = 'Generar y descargar ZIP';
+        logMsg('ZIP(s) listo(s).', 'ok');
+      }
     } catch (e){
       logMsg('Error generando el ZIP: ' + e.message, 'err');
     } finally {
+      keepAwake(false);
       $('zipBtn').disabled = false;
     }
   });
