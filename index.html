@@ -489,6 +489,7 @@
     const safeName = name.replace(/'/g, "\\'");
     const q = encodeURIComponent(`name = '${safeName}' and '${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
     const res = await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`);
+    if (!res.ok) throw new Error('No se pudo buscar la carpeta de resultados (HTTP ' + res.status + ').');
     const data = await res.json();
     if (data.files && data.files.length) return data.files[0].id;
     const createRes = await driveFetch('https://www.googleapis.com/drive/v3/files?supportsAllDrives=true', {
@@ -496,6 +497,13 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, mimeType: 'application/vnd.google-apps.folder', parents: [parentId] })
     });
+    // Sin esto, un fallo devolvía id undefined y después se listaba "'undefined' in parents" → 404.
+    if (!createRes.ok){
+      throw new Error('No se pudo crear la carpeta «' + name + '» (HTTP ' + createRes.status + '). '
+        + (createRes.status === 403 || createRes.status === 404
+          ? '¿Tenés permiso de edición sobre la carpeta de fotos? Si es compartida de solo lectura, copiala a tu Drive.'
+          : ''));
+    }
     const created = await createRes.json();
     return created.id;
   }
@@ -507,6 +515,7 @@
       const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
       const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true${pageToken ? '&pageToken=' + pageToken : ''}`;
       const res = await driveFetch(url);
+      if (!res.ok) throw new Error('No se pudo listar la carpeta de resultados (HTTP ' + res.status + ').');
       const data = await res.json();
       (data.files || []).forEach(f => names.add(f.name));
       pageToken = data.nextPageToken;
@@ -896,7 +905,14 @@
       if (!destFolderId){
         destFolderId = await getOrCreateFolder($('destName').value.trim() || 'UTN_CORRE_PROCESADAS', sourceFolderId);
       }
-      const files = await listImagesInFolder(destFolderId);
+      let files;
+      try {
+        files = await listImagesInFolder(destFolderId);
+      } catch (e){
+        // La carpeta guardada pudo haberse borrado en Drive: se vuelve a buscar una vez.
+        destFolderId = await getOrCreateFolder($('destName').value.trim() || 'UTN_CORRE_PROCESADAS', sourceFolderId);
+        files = await listImagesInFolder(destFolderId);
+      }
       if (!files.length){ alert('La carpeta de resultados está vacía.'); return; }
       files.sort((a, b) => a.name.localeCompare(b.name));
       const chunks = [];
