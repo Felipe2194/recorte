@@ -4,7 +4,7 @@ Página estática (un solo `index.html`, sin backend) alojada en Vercel. Le peg�
 
 1. Descarga cada foto, la redimensiona (opcional) y le pone el logo encima con `<canvas>`.
 2. La guarda en el formato elegido (JPG / WebP / PNG, con calidad configurable).
-3. La sube a una carpeta de resultados dentro de la carpeta de origen.
+3. La sube a una carpeta de resultados dentro de la carpeta de origen (o dentro de otra carpeta que elijas, si la de origen es de solo lectura).
 4. Arma el ZIP leyendo esa carpeta de resultados (en partes de 150 fotos si son muchas).
 
 Todo el procesamiento corre en el navegador de quien usa la página; Vercel solo sirve el HTML. No hay Apps Script, ni `Code.gs`, ni servidor propio.
@@ -47,7 +47,7 @@ y volvé a desplegar. Con eso el campo del paso 1 desaparece y solo queda el bot
 1. Conectar con Google.
 2. Pegar el link (o ID) de la carpeta de Drive → "Buscar fotos".
 3. Subir el logo PNG.
-4. Configurar: tamaño / opacidad / margen del logo, formato de salida, calidad, lado más largo en px (0 = original), nombre de la carpeta de resultados. La **vista previa** muestra en vivo cómo queda cualquier foto de la carpeta (con ‹ › se recorren) y cuánto pesará cada resultado.
+4. Configurar: tamaño / opacidad / margen del logo, formato de salida, calidad, lado más largo en px (0 = original), nombre de la carpeta de resultados y, opcionalmente, dónde guardarla ("Guardar los resultados en": útil si la carpeta de fotos es compartida y solo podés verla). La **vista previa** muestra en vivo cómo queda cualquier foto de la carpeta (con ‹ › se recorren) y cuánto pesará cada resultado.
 5. "Procesar fotos". Se puede detener y retomar: las fotos que ya tienen resultado en Drive (mismo nombre y extensión) se saltean.
 6. "Generar y descargar ZIP" (funciona también otro día sin reprocesar: busca la carpeta de resultados por nombre).
 

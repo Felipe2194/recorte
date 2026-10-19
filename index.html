@@ -279,8 +279,13 @@
       <p class="hint" id="previewInfo"></p>
     </div>
     <div class="field">
-      <label for="destName">Nombre de la carpeta de resultados (se crea dentro de la carpeta de origen)</label>
+      <label for="destName">Nombre de la carpeta de resultados</label>
       <input type="text" id="destName" value="UTN_CORRE_PROCESADAS_2026">
+    </div>
+    <div class="field">
+      <label for="destParentInput">Guardar los resultados en (opcional)</label>
+      <input type="text" id="destParentInput" placeholder="Enlace o ID de una carpeta de tu Drive">
+      <p class="hint">Vacío: la carpeta de resultados se crea dentro de la carpeta de fotos. Si la carpeta de fotos no es tuya y solo podés verla, pegá acá una carpeta de tu Drive.</p>
     </div>
   </section>
 
@@ -523,11 +528,21 @@
       throw new Error('No se pudo crear la carpeta «' + name + '» (HTTP ' + createRes.status + (reason ? ', ' + reason : '') + '). '
         + (createRes.status === 403 || createRes.status === 404
           ? (connectedEmail ? 'Estás conectado como ' + connectedEmail + ': ¿es la cuenta dueña (o Editora) de la carpeta de fotos? ' : '')
-            + '¿Tenés permiso de edición sobre la carpeta de fotos? Si es compartida de solo lectura, copiala a tu Drive.'
+            + 'No tenés permiso de edición sobre la carpeta donde se guardan los resultados. Pegá una carpeta de tu Drive en «Guardar los resultados en».'
           : ''));
     }
     const created = await createRes.json();
     return created.id;
+  }
+
+  // La carpeta de resultados va dentro de la de fotos, salvo que se elija otra
+  // (necesario cuando la carpeta de fotos es compartida de solo lectura).
+  $('destParentInput').addEventListener('change', () => { destFolderId = null; });
+
+  function getResultsFolder(){
+    const parentRaw = $('destParentInput').value.trim();
+    const parentId = parentRaw ? extractFolderId(parentRaw) : sourceFolderId;
+    return getOrCreateFolder($('destName').value.trim() || 'UTN_CORRE_PROCESADAS', parentId);
   }
 
   async function listAllNames(folderId){
@@ -614,7 +629,7 @@
       // Sin permiso de edición se pueden ver las fotos pero no crear la carpeta
       // de resultados adentro; mejor avisarlo ahora que al final del proceso.
       if (folder.capabilities && folder.capabilities.canAddChildren === false){
-        setStatus('scanDot', 'scanStatus', allFiles.length + ' fotos en «' + folder.name + '», pero no tenés permiso de edición: no se va a poder guardar la carpeta de resultados ahí. Pedí acceso de Editor o copiá la carpeta a tu Drive.', 'warn');
+        setStatus('scanDot', 'scanStatus', allFiles.length + ' fotos en «' + folder.name + '», pero no tenés permiso de edición: elegí una carpeta tuya en «Guardar los resultados en» (paso 4).', 'warn');
       } else {
         setStatus('scanDot', 'scanStatus', allFiles.length + ' fotos en «' + folder.name + '»', 'ok');
       }
@@ -878,7 +893,7 @@
     $('log').innerHTML = '';
 
     startRun(async (signal) => {
-      destFolderId = await getOrCreateFolder($('destName').value.trim() || 'UTN_CORRE_PROCESADAS', sourceFolderId);
+      destFolderId = await getResultsFolder();
       $('driveLink').href = 'https://drive.google.com/drive/folders/' + destFolderId;
       $('driveLink').style.display = 'inline';
 
@@ -931,14 +946,14 @@
     try {
       // Permite bajar el ZIP otro día sin reprocesar: busca/crea la carpeta de resultados.
       if (!destFolderId){
-        destFolderId = await getOrCreateFolder($('destName').value.trim() || 'UTN_CORRE_PROCESADAS', sourceFolderId);
+        destFolderId = await getResultsFolder();
       }
       let files;
       try {
         files = await listImagesInFolder(destFolderId);
       } catch (e){
         // La carpeta guardada pudo haberse borrado en Drive: se vuelve a buscar una vez.
-        destFolderId = await getOrCreateFolder($('destName').value.trim() || 'UTN_CORRE_PROCESADAS', sourceFolderId);
+        destFolderId = await getResultsFolder();
         files = await listImagesInFolder(destFolderId);
       }
       if (!files.length){ alert('La carpeta de resultados está vacía.'); return; }
