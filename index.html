@@ -499,7 +499,14 @@
     });
     // Sin esto, un fallo devolvía id undefined y después se listaba "'undefined' in parents" → 404.
     if (!createRes.ok){
-      throw new Error('No se pudo crear la carpeta «' + name + '» (HTTP ' + createRes.status + '). '
+      // El motivo de Google (insufficientFilePermissions, storageQuotaExceeded, …)
+      // dice mucho más que el código HTTP.
+      let reason = '';
+      try {
+        const err = (await createRes.json()).error || {};
+        reason = (err.errors && err.errors[0] && err.errors[0].reason) || err.message || '';
+      } catch (e) {}
+      throw new Error('No se pudo crear la carpeta «' + name + '» (HTTP ' + createRes.status + (reason ? ', ' + reason : '') + '). '
         + (createRes.status === 403 || createRes.status === 404
           ? '¿Tenés permiso de edición sobre la carpeta de fotos? Si es compartida de solo lectura, copiala a tu Drive.'
           : ''));
@@ -544,7 +551,7 @@
   }
 
   async function getFolderInfo(folderId){
-    const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${folderId}?fields=id,name,parents,mimeType&supportsAllDrives=true`);
+    const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${folderId}?fields=id,name,parents,mimeType,capabilities(canAddChildren)&supportsAllDrives=true`);
     if (!res.ok) throw new Error('No se encontró la carpeta (HTTP ' + res.status + '). Revisá el link y el permiso.');
     const data = await res.json();
     if (data.mimeType && data.mimeType !== 'application/vnd.google-apps.folder') throw new Error('El link no es de una carpeta.');
@@ -589,7 +596,13 @@
       sourceFolderId = folderId;
       allFiles = files;
       destFolderId = null;
-      setStatus('scanDot', 'scanStatus', allFiles.length + ' fotos en «' + folder.name + '»', 'ok');
+      // Sin permiso de edición se pueden ver las fotos pero no crear la carpeta
+      // de resultados adentro; mejor avisarlo ahora que al final del proceso.
+      if (folder.capabilities && folder.capabilities.canAddChildren === false){
+        setStatus('scanDot', 'scanStatus', allFiles.length + ' fotos en «' + folder.name + '», pero no tenés permiso de edición: no se va a poder guardar la carpeta de resultados ahí. Pedí acceso de Editor o copiá la carpeta a tu Drive.', 'warn');
+      } else {
+        setStatus('scanDot', 'scanStatus', allFiles.length + ' fotos en «' + folder.name + '»', 'ok');
+      }
       unlock('step3'); unlock('step4'); unlock('step5'); unlock('step6');
       fillPreviewSelect();
     } catch (e){
