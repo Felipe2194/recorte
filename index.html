@@ -339,6 +339,7 @@
   const IOS_CANVAS_MAX = 16777216;
 
   let accessToken = null;
+  let connectedEmail = '';
   let tokenClient = null;
   let sourceFolderId = null;
   let destFolderId = null;
@@ -426,8 +427,21 @@
             return;
           }
           accessToken = resp.access_token;
+          if (!google.accounts.oauth2.hasGrantedAllScopes(resp, TARGET_SCOPE)){
+            setStatus('authDot','authStatus','Falta el permiso de Drive: volvé a conectar y tildá el acceso a Google Drive.', 'err');
+            return;
+          }
           setStatus('authDot','authStatus','Conectado', 'ok');
           unlock('step2');
+          // Con varias cuentas abiertas es fácil autorizar con la equivocada,
+          // así que mostramos cuál quedó conectada.
+          driveFetch('https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)')
+            .then(r => r.ok ? r.json() : null)
+            .then(d => {
+              connectedEmail = (d && d.user && d.user.emailAddress) || '';
+              if (connectedEmail) setStatus('authDot','authStatus','Conectado como ' + connectedEmail, 'ok');
+            })
+            .catch(() => {});
         }
       });
       tokenClient.__clientId = clientId;
@@ -508,7 +522,8 @@
       } catch (e) {}
       throw new Error('No se pudo crear la carpeta «' + name + '» (HTTP ' + createRes.status + (reason ? ', ' + reason : '') + '). '
         + (createRes.status === 403 || createRes.status === 404
-          ? '¿Tenés permiso de edición sobre la carpeta de fotos? Si es compartida de solo lectura, copiala a tu Drive.'
+          ? (connectedEmail ? 'Estás conectado como ' + connectedEmail + ': ¿es la cuenta dueña (o Editora) de la carpeta de fotos? ' : '')
+            + '¿Tenés permiso de edición sobre la carpeta de fotos? Si es compartida de solo lectura, copiala a tu Drive.'
           : ''));
     }
     const created = await createRes.json();
